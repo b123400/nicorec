@@ -1,21 +1,22 @@
 module Main where
 
-import Control.Lens ((<&>))
-import Data.Functor (($>))
-
 import System.ReadEnvVar (lookupEnvEx)
+import Control.Monad (join)
 import qualified Data.ByteString.Lazy.Char8 as B
+import qualified Data.Text as T
 
-import Lib (login, extractWebSocketTokens, getM3U8Url, NicoException(..))
+import Lib (login, extractWebSocketTokens, getM3U8Url, processM3U8, NicoException(..))
 import Error (liftErr)
 
 main :: IO ()
 main = do
-  username <- lookupEnvEx "NICONICO_USERNAME"
-  password <- lookupEnvEx "NICONICO_PASSWORD"
-  liveID <- lookupEnvEx "LIVE_ID"
+  username  <- lookupEnvEx "NICONICO_USERNAME"
+  password  <- lookupEnvEx "NICONICO_PASSWORD"
+  liveID    <- lookupEnvEx "LIVE_ID"
 
-  cookie <- login username password >>= (liftErr CannotLogin)
-  tokens <- extractWebSocketTokens cookie liveID >>= (liftErr CannotExtractToken)
-  text <- getM3U8Url tokens cookie
-  putStrLn $ show $ text
+  cookieJar <- login username password >>= liftErr CannotLogin
+  tokens    <- extractWebSocketTokens cookieJar liveID >>= liftErr CannotExtractToken
+  m3u8Url   <- getM3U8Url tokens cookieJar
+  m3u8      <- processM3U8 $ T.unpack m3u8Url
+  putStrLn $ show m3u8
+

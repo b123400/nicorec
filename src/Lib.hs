@@ -4,6 +4,7 @@ module Lib
     ( login
     , extractWebSocketTokens
     , getM3U8Url
+    , processM3U8
     , NicoException(..)
     ) where
 
@@ -21,7 +22,8 @@ import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as BC8
 import qualified Data.Text as T
 import Network.HTTP.Client (CookieJar)
-import Network.Wreq ( post
+import Network.Wreq ( get
+                    , post
                     , getWith
                     , defaults
                     , param
@@ -31,8 +33,16 @@ import Network.Wreq ( post
                     , responseCookieJar
                     , FormParam((:=)))
 import qualified Network.WebSockets as WS
-import Network.URI (URI, parseURI, uriAuthority, uriRegName, uriPort, uriPath, uriQuery)
-import Text.Regex.TDFA ((=~), AllTextSubmatches, getAllTextSubmatches)
+import Network.URI ( URI
+                   , parseURI
+                   , uriAuthority
+                   , uriRegName
+                   , uriPort
+                   , uriPath
+                   , uriQuery )
+import Text.Regex.TDFA ((=~)
+                       , AllTextSubmatches
+                       , getAllTextSubmatches)
 import Data.List.Utils (replace)
 import Data.String.Utils (maybeRead)
 import Data.Aeson.Lens (key, _String)
@@ -49,6 +59,7 @@ instance Exception NicoException
 
 login :: String -> String -> IO (Maybe CookieJar)
 login username password = do
+  putStrLn "Logging in"
   r <- post "https://secure.nicovideo.jp/secure/login" [ "mail" := username
                                                        , "password" := password ]
   let isLoginSuccess =
@@ -56,6 +67,7 @@ login username password = do
         & mfilter ((==) "1")
         & isJust
 
+  putStrLn ("Login: " <> show isLoginSuccess)
   if isLoginSuccess
     then return $ r ^? responseCookieJar
     else return Nothing
@@ -77,13 +89,14 @@ extractWebSocketTokens cookieJar liveID = do
                 <$> substringToken "broadcastId" bodyString
                 <*> substringToken "webSocketBaseUrl" bodyString
                 <*> substringToken "audienceToken" bodyString
-
   return tokens
+
   where substringToken :: B.ByteString -> B.ByteString -> Maybe B.ByteString
         substringToken name body =
           getAllTextSubmatches
           ((body =~ (name <> " *: *\"([^\"]+)\"")) :: AllTextSubmatches [] B.ByteString)
           ^? ix 1
+
 
 websocketUri :: WebsocketTokens -> Maybe URI
 websocketUri t = parse $ webSocketBaseUrl t
@@ -128,7 +141,12 @@ getM3U8Url tokens jar =
           >> untilJust (WS.receiveData c
                         >>= \str -> BC8.putStrLn ("received json: " <> str)
                         $> lookForM3U8Url str)
-          >>= (\url-> (putStrLn $ show url) $> url)
 
         lookForM3U8Url :: B.ByteString -> Maybe T.Text
         lookForM3U8Url string = string ^? key "body" . key "currentStream" . key "uri" . _String
+
+
+processM3U8 :: String -> IO B.ByteString
+processM3U8 url =
+  get url <&> \r ->
+  r ^. responseBody
