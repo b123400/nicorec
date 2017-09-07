@@ -2,17 +2,12 @@ module Main where
 
 import Control.Lens ((<&>))
 import Data.Functor (($>))
-import Data.Maybe (fromMaybe)
-import Control.Monad.Catch (throwM, MonadThrow, Exception)
+
 import System.ReadEnvVar (lookupEnvEx)
-import Data.Typeable (Typeable)
+import qualified Data.ByteString.Lazy.Char8 as B
 
-import Lib (login, extractWebSocketTokens)
-
-data NicoException = CannotLogin | CannotExtractToken
-  deriving (Show, Typeable)
-
-instance Exception NicoException
+import Lib (login, extractWebSocketTokens, getM3U8Url, NicoException(..))
+import Error (liftErr)
 
 main :: IO ()
 main = do
@@ -22,9 +17,5 @@ main = do
 
   cookie <- login username password >>= (liftErr CannotLogin)
   tokens <- extractWebSocketTokens cookie liveID >>= (liftErr CannotExtractToken)
-  putStrLn $ show tokens
-
-
-liftErr :: MonadThrow m => Exception e => e -> Maybe a -> m a
-liftErr _ (Just a) = return a
-liftErr ex Nothing = throwM ex
+  text <- getM3U8Url tokens cookie
+  putStrLn $ show $ text
