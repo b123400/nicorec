@@ -15,7 +15,12 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib, Error, Cookie
+  exposed-modules:     Lib
+                     , Lib.Error
+  other-modules:       Lib.Operators
+                     , Lib.Cookie
+                     , Lib.Parser
+                     , Lib.Url
   build-depends:       base >= 4.7 && < 5
                      , wreq >= 0.5 && < 0.6
                      , bytestring >= 0.10 && < 0.11

@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Cookie
+module Lib.Cookie
     ( renderCookieJar
     ) where
 

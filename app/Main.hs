@@ -5,8 +5,8 @@ import Control.Monad (join)
 import qualified Data.ByteString.Lazy.Char8 as B
 import qualified Data.Text as T
 
-import Lib (login, extractWebSocketTokens, getM3U8Url, processM3U8, NicoException(..))
-import Error (liftErr)
+import Lib (login, extractWebSocketTokens, getM3U8Url, processM3U8)
+import Lib.Error (liftErr, NicoException(..))
 
 main :: IO ()
 main = do
