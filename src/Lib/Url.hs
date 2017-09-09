@@ -14,7 +14,9 @@ import Network.URI ( URI
                    , uriRegName
                    , uriPort
                    , uriPath
-                   , uriQuery )
+                   , uriQuery
+                   , parseURIReference
+                   , relativeTo )
 
 import Lib.Error (liftErr, NicoException(..))
 import Lib.Parser (WebsocketTokens, webSocketBaseUrl, broadcastId, audienceToken)
@@ -42,3 +44,7 @@ port uri = (uriAuthority uri
 
 path :: URI -> String
 path uri = uriPath uri <> uriQuery uri
+
+appendPath :: String -> String -> Maybe String
+appendPath base path =
+  show <$> (relativeTo <$> parseURIReference path <*> parseURI base)

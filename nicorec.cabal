@@ -37,6 +37,7 @@ library
                      , network-uri >= 2.6 && < 3
                      , cookie >= 0.4 && < 0.5
                      , binary >= 0.8 && < 0.9
+                     , safe >= 0.3 && < 0.4
   default-language:    Haskell2010
 
 executable nicorec-exe

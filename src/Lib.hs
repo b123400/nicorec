@@ -4,17 +4,18 @@ module Lib
     ( login
     , extractWebSocketTokens
     , getM3U8Url
-    , processM3U8
+    , processMasterM3U8
     ) where
 
 import Prelude
 import Control.Monad (mfilter, join)
 import Control.Monad.Loops (untilJust)
-import Control.Lens ((^.), (^?), (.~), (?~), (<&>))
+import Control.Lens ((^.), (^?), (.~), (?~), (<&>), view)
 import Data.Functor (($>))
 import Data.Function ((&))
 import Data.Maybe (isJust)
 import Data.Monoid ((<>))
+import Data.Traversable (traverse)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as BC8
 import qualified Data.Text as T
@@ -26,15 +27,17 @@ import Network.Wreq ( get
                     , param
                     , cookies
                     , responseHeader
+                    , responseHeaders
                     , responseBody
                     , responseCookieJar
                     , FormParam((:=)))
 import qualified Network.WebSockets as WS
 import Data.Aeson.Lens (key, _String)
+import Safe (headMay)
 
 import Lib.Error (liftErr, NicoException(..))
 import Lib.Operators ((<*>>))
-import Lib.Url (websocketUri, host, port, path)
+import Lib.Url (websocketUri, host, port, path, appendPath)
 import Lib.Cookie (renderCookieJar)
 import qualified Lib.Parser as P
 
@@ -90,7 +93,26 @@ getM3U8Url tokens jar =
         lookForM3U8Url string = string ^? key "body" . key "currentStream" . key "uri" . _String
 
 
-processM3U8 :: String -> IO B.ByteString
-processM3U8 url =
-  get url <&> \r ->
-  r ^. responseBody
+processMasterM3U8 :: String -> IO [String]
+processMasterM3U8 url =
+  get url
+  <&> view responseBody
+  <&> P.parsePlayListFromM3U8
+  <&> headMay
+  >>= liftErr NoPlayListFoundInMaster
+  <&> BC8.unpack
+  <&> appendPath url
+  >>= liftErr InvalidPlayListPath
+  >>= processPlayList
+
+processPlayList :: String -> IO [String]
+processPlayList url =
+  get url
+  <&> view responseBody
+  <&> P.parsePlayListFromM3U8
+  <&> (\l-> appendPath url <$> BC8.unpack <$> l >>= liftErr InvalidPlayListPath)
+  >>= fetchAndShowHeaders
+
+fetchAndShowHeaders :: [String] -> IO [String]
+fetchAndShowHeaders urls = traverse showHeader urls
+  where showHeader url = get url <&> view responseHeaders <&> show

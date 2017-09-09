@@ -8,6 +8,8 @@ import Data.Typeable (Typeable)
 data NicoException = CannotLogin
                    | CannotExtractToken
                    | CannotParseWebsocketUri
+                   | NoPlayListFoundInMaster
+                   | InvalidPlayListPath
   deriving (Show, Typeable)
 
 instance Exception NicoException

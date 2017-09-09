@@ -8,6 +8,7 @@ import Text.Regex.TDFA ((=~)
                        , AllTextSubmatches
                        , getAllTextSubmatches)
 import qualified Data.ByteString.Lazy as B
+import qualified Data.ByteString.Lazy.Char8 as BC8
 
 data WebsocketTokens = WebsocketTokens
   { broadcastId      :: B.ByteString
@@ -27,3 +28,7 @@ extractWebSocketTokens bodyString =
           getAllTextSubmatches
           ((body =~ (name <> " *: *\"([^\"]+)\"")) :: AllTextSubmatches [] B.ByteString)
           ^? ix 1
+
+parsePlayListFromM3U8 :: BC8.ByteString -> [BC8.ByteString]
+parsePlayListFromM3U8 =
+  filter ((/=) '#' . BC8.head) . filter ((<) 0 . BC8.length) . BC8.split '\n'
