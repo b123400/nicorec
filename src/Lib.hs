@@ -169,14 +169,15 @@ processPlayList = go []
 
 
 fetchAndSave :: String -> String -> IO ()
-fetchAndSave filename url = log >> go
+fetchAndSave filename url = log >> go 10
   where log = putStrLn $ "fetching " <> (takeFileName url)
-        go  = (get url
-              <&> view responseBody
-              >>= BC8.writeFile filename
-              -- $> ()
-              )
-              `catch` (\e -> putStrLn $ show (e :: HttpException))
+        go retryCount =
+          if retryCount <= 0
+          then return ()
+          else (get url
+                <&> view responseBody
+                >>= BC8.writeFile filename)
+                `catch` (\e -> (putStrLn $ show (e :: HttpException)) >> go (retryCount - 1))
 
 outputFilename :: String -> String -> String
 outputFilename base url =
