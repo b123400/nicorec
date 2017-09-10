@@ -11,9 +11,10 @@ import Prelude
 import Control.Monad (mfilter, join)
 import Control.Monad.Loops (untilJust)
 import Control.Lens ((^.), (^?), (.~), (?~), (<&>), view)
+import Control.Concurrent (forkIO, threadDelay)
 import Data.Functor (($>))
 import Data.Function ((&))
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, catMaybes)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
 import qualified Data.ByteString.Lazy as B
@@ -34,11 +35,13 @@ import Network.Wreq ( get
 import qualified Network.WebSockets as WS
 import Data.Aeson.Lens (key, _String)
 import Safe (headMay)
+import System.FilePath.Posix (takeFileName, (</>))
 
 import Lib.Error (liftErr, NicoException(..))
 import Lib.Operators ((<*>>))
 import Lib.Url (websocketUri, host, port, path, appendPath)
 import Lib.Cookie (renderCookieJar)
+import Lib.FileSystem (prepareDirectory)
 import qualified Lib.Parser as P
 
 login :: String -> String -> IO (Maybe CookieJar)
@@ -75,7 +78,7 @@ getM3U8Url tokens jar =
   join $ WS.runClientWith
       <$> host uri
       <*> port uri
-      <*>> (path uri)
+      <*>> path uri
       <*>> WS.defaultConnectionOptions
       <*>> [("Cookies", B.toStrict $ renderCookieJar jar)]
       <*>> action
@@ -90,12 +93,16 @@ getM3U8Url tokens jar =
                         $> lookForM3U8Url str)
 
         lookForM3U8Url :: B.ByteString -> Maybe T.Text
-        lookForM3U8Url string = string ^? key "body" . key "currentStream" . key "uri" . _String
+        lookForM3U8Url string = string ^? key "body"
+                                        . key "currentStream"
+                                        . key "uri"
+                                        . _String
 
 
-processMasterM3U8 :: String -> IO [String]
-processMasterM3U8 url =
-  get url
+processMasterM3U8 :: String -> String -> IO ()
+processMasterM3U8 base url =
+  prepareDirectory base
+  >> get url
   <&> view responseBody
   <&> P.parsePlayListFromM3U8
   <&> headMay
@@ -103,16 +110,28 @@ processMasterM3U8 url =
   <&> BC8.unpack
   <&> appendPath url
   >>= liftErr InvalidPlayListPath
-  >>= processPlayList
+  >>= processPlayList base
 
-processPlayList :: String -> IO [String]
-processPlayList url =
-  get url
-  <&> view responseBody
-  <&> P.parsePlayListFromM3U8
-  <&> (\l-> appendPath url <$> BC8.unpack <$> l >>= liftErr InvalidPlayListPath)
-  >>= fetchAndShowHeaders
+processPlayList :: String -> String -> IO ()
+processPlayList = go []
+  where go existing base url = do
+          putStrLn $ "fetching " <> url
+          body <- view responseBody <$> get url
+          let playList = catMaybes $ appendPath url <$> BC8.unpack
+                                                    <$> P.parsePlayListFromM3U8 body
+          let duration = P.parseDurationFromM3U8 body
+          let newTS = filter (\u-> not $ elem (outputFilename base u) existing) playList
+          let filenames = outputFilename base <$> newTS
+          traverse (\u-> forkIO $ fetchAndSave (outputFilename base u) u) newTS
+          threadDelay duration
+          go (existing <> filenames) base url
 
-fetchAndShowHeaders :: [String] -> IO [String]
-fetchAndShowHeaders urls = traverse showHeader urls
-  where showHeader url = get url <&> view responseHeaders <&> show
+
+fetchAndSave :: String -> String -> IO ()
+fetchAndSave filename url = get url
+                            <&> view responseBody
+                            >>= BC8.writeFile filename
+
+outputFilename :: String -> String -> String
+outputFilename base url =
+  base </> (takeWhile ((/=) '?') $ takeFileName url)

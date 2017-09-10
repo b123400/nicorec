@@ -3,12 +3,14 @@
 module Lib.Parser where
 
 import Data.Monoid ((<>))
+import Data.Maybe (catMaybes)
 import Control.Lens ((^?), ix)
 import Text.Regex.TDFA ((=~)
                        , AllTextSubmatches
                        , getAllTextSubmatches)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as BC8
+import Data.String.Utils (maybeRead)
 
 data WebsocketTokens = WebsocketTokens
   { broadcastId      :: B.ByteString
@@ -31,4 +33,13 @@ extractWebSocketTokens bodyString =
 
 parsePlayListFromM3U8 :: BC8.ByteString -> [BC8.ByteString]
 parsePlayListFromM3U8 =
-  filter ((/=) '#' . BC8.head) . filter ((<) 0 . BC8.length) . BC8.split '\n'
+  filter ((/=) '#' . BC8.head) . filter ((/=) 0 . BC8.length) . BC8.split '\n'
+
+parseDurationFromM3U8 :: BC8.ByteString -> Int -- microseconds
+parseDurationFromM3U8 =
+  ((*) 1000000)           -- second -> microseconds
+  . foldl (const id) 1    -- default 1 second
+  . catMaybes
+  . map (maybeRead . BC8.unpack . last . BC8.split ':')
+  . filter (\s-> "#EXT-X-TARGETDURATION:" `BC8.isPrefixOf` s)
+  . BC8.split '\n'
