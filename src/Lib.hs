@@ -174,7 +174,8 @@ fetchAndSave filename url = log >> go 10
         go retryCount =
           if retryCount <= 0
           then return ()
-          else (get url
+          else (putStrLn ("retry: " <> (show retryCount))
+                >> get url
                 <&> view responseBody
                 >>= BC8.writeFile filename)
                 `catch` (\e -> (putStrLn $ show (e :: HttpException)) >> go (retryCount - 1))
