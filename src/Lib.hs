@@ -16,7 +16,8 @@ import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import Control.Monad.Catch (catch)
 import Data.Functor (($>))
 import Data.Function ((&))
-import Data.Maybe (maybe, isJust, catMaybes)
+import Data.Maybe (isJust, catMaybes)
+import Data.String.Utils (maybeRead)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
 import qualified Data.ByteString.Lazy as B
@@ -35,7 +36,7 @@ import Network.Wreq ( get
                     , responseCookieJar
                     , FormParam((:=)))
 import qualified Network.WebSockets as WS
-import Data.Aeson.Lens (key, _String)
+import Data.Aeson.Lens (key, nth, _String, _Number)
 import Safe (headMay)
 import System.FilePath.Posix (takeFileName, (</>))
 
@@ -97,21 +98,30 @@ getM3U8Url tokens jar = do
                         >>= \str -> BC8.putStrLn ("received json: " <> str)
                         $> lookForM3U8Url str)
           >>= putMVar result
+          >> untilJust (WS.receiveData c
+                        >>= \str -> BC8.putStrLn ("received json: " <> str)
+                        $> lookForWatchingInterval str)
+          >>= forkIO . (watchingInterval c (P.broadcastId tokens))
           >> keepReading c
+          >> putStrLn "Websocket closed"
 
-        -- watchingInternval
--- {"type":"watch","body":{"room":{"messageServerUri":"ws://msg103.live.nicovideo.jp:83/websocket","messageServerType":"niwavided","roomName":"co2947819","threadId":"1611635152","forks":[0],"importedForks":[]},"command":"currentroom"}}
--- {type: "watch", body: {command: "watching", params: ["3874174796402", "-1", "0"]}}
+        watchingInterval c broadcastId interval =
+          putStrLn "Sending watching command"
+          >> WS.sendTextData c ("{\"type\":\"watch\",\"body\":{\"command\":\"watching\",\"params\":[\""
+                                <> broadcastId
+                                <> "\",\"-1\",\"0\"]}}")
+          >> threadDelay interval
+          >> watchingInterval c broadcastId interval
+
         pong c = putStrLn "Sending pong..."
                  >> WS.sendTextData c ("{\"type\":\"pong\",\"body\":{}}" :: BC8.ByteString)
 
         keepReading c = WS.receiveData c
                         >>= \str -> BC8.putStrLn ("received data: " <> str)
-                        >> if maybe False ((==) "ping") (str ^? key "type" . _String)
+                        >> (if isJust $ mfilter ((==) "ping") (str ^? key "type" . _String)
                            then pong c
-                           else return ()
+                           else return ())
                         >> keepReading c
-
 
         lookForM3U8Url :: B.ByteString -> Maybe T.Text
         lookForM3U8Url string = string ^? key "body"
@@ -119,21 +129,28 @@ getM3U8Url tokens jar = do
                                         . key "uri"
                                         . _String
 
+        -- Niconico requires client side to report "I am watching" for every interval
+        -- We can get the interval from websocket,
+        -- The report will be handled in `watchingInterval`
+        lookForWatchingInterval :: B.ByteString -> Maybe Int
+        lookForWatchingInterval string =
+          ((*) 1000000) <$> (maybeRead =<< findInterval string)
+          where findInterval string  = (string ^? key "body" . key "command")
+                                       & mfilter ((==) "watchinginterval")
+                                       >> string ^? key "body" . key "params" . nth 0 . _String
+                                       <&> T.unpack
+
 processMasterM3U8 :: String -> String -> IO ()
-processMasterM3U8 base url =
-    (go base url)
-    `catch` (\e-> putStrLn (show (e :: HttpException))
-                  >> processMasterM3U8 base url)
-  where go base url = prepareDirectory base
-                      >> get url
-                      <&> view responseBody
-                      <&> P.parsePlayListFromM3U8
-                      <&> headMay
-                      >>= liftErr NoPlayListFoundInMaster
-                      <&> BC8.unpack
-                      <&> appendPath url
-                      >>= liftErr InvalidPlayListPath
-                      >>= processPlayList base
+processMasterM3U8 base url =  prepareDirectory base
+                              >> get url
+                              <&> view responseBody
+                              <&> P.parsePlayListFromM3U8
+                              <&> headMay
+                              >>= liftErr NoPlayListFoundInMaster
+                              <&> BC8.unpack
+                              <&> appendPath url
+                              >>= liftErr InvalidPlayListPath
+                              >>= processPlayList base
 
 
 processPlayList :: String -> String -> IO ()
@@ -156,8 +173,8 @@ fetchAndSave filename url = log >> go
   where log = putStrLn $ "fetching " <> (takeFileName url)
         go  = (get url
               <&> view responseBody
-              -- >>= BC8.writeFile filename
-              $> ()
+              >>= BC8.writeFile filename
+              -- $> ()
               )
               `catch` (\e -> putStrLn $ show (e :: HttpException))
 
