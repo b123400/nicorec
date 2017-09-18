@@ -16,7 +16,7 @@ import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import Control.Monad.Catch (catch)
 import Data.Functor (($>))
 import Data.Function ((&))
-import Data.Maybe (isJust, catMaybes)
+import Data.Maybe (isJust, catMaybes, listToMaybe)
 import Data.String.Utils (maybeRead)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
@@ -37,7 +37,6 @@ import Network.Wreq ( get
                     , FormParam((:=)))
 import qualified Network.WebSockets as WS
 import Data.Aeson.Lens (key, nth, _String, _Number)
-import Safe (headMay)
 import System.FilePath.Posix (takeFileName, (</>))
 
 import Lib.Error (liftErr, NicoException(..))
@@ -146,7 +145,7 @@ processMasterM3U8 base url =  prepareDirectory base
                               >> get url
                               <&> view responseBody
                               <&> P.parsePlayListFromM3U8
-                              <&> headMay
+                              <&> listToMaybe
                               >>= liftErr NoPlayListFoundInMaster
                               <&> BC8.unpack
                               <&> appendPath url
