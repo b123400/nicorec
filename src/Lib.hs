@@ -172,14 +172,12 @@ processPlayList base url = repeatDedup 100 go $> ()
 fetchAndSave :: String -> String -> IO ()
 fetchAndSave filename url = log >> go 10
   where log = putStrLn $ "fetching " <> (takeFileName url)
-        go retryCount =
-          if retryCount <= 0
-          then return ()
-          else (putStrLn ("retry: " <> (show retryCount))
-                >> get url
-                <&> view responseBody
-                >>= BC8.writeFile filename)
-                `catch` (\e -> (putStrLn $ show (e :: HttpException)) >> go (retryCount - 1))
+        go 0          = return ()
+        go retryCount = (putStrLn ("retry: " <> (show retryCount))
+                        >> get url
+                        <&> view responseBody
+                        >>= BC8.writeFile filename)
+                        `catch` (\e -> (putStrLn $ show (e :: HttpException)) >> go (retryCount - 1))
 
 outputFilename :: String -> String -> String
 outputFilename base url =
