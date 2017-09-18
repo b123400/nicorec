@@ -45,6 +45,7 @@ import Lib.Operators ((<*>>))
 import Lib.Url (websocketUri, host, port, path, appendPath)
 import Lib.Cookie (renderCookieJar)
 import Lib.FileSystem (prepareDirectory)
+import Lib.Utility (repeatDedup)
 import qualified Lib.Parser as P
 
 login :: String -> String -> IO (Maybe CookieJar)
@@ -154,18 +155,18 @@ processMasterM3U8 base url =  prepareDirectory base
 
 
 processPlayList :: String -> String -> IO ()
-processPlayList = go []
-  where go existing base url = do
+processPlayList base url = repeatDedup 100 go $> ()
+  where go performed = do
           putStrLn $ "fetching " <> url
           body <- view responseBody <$> get url
           let playList = catMaybes $ appendPath url <$> BC8.unpack
                                                     <$> P.parsePlayListFromM3U8 body
           let duration = P.parseDurationFromM3U8 body
-          let newTS = filter (\u-> not $ elem (outputFilename base u) existing) playList
+          let newTS = filter (not . performed . outputFilename base) playList
           let filenames = outputFilename base <$> newTS
           traverse (\u-> forkIO $ fetchAndSave (outputFilename base u) u) newTS
-          threadDelay duration
-          go (existing <> filenames) base url
+          threadDelay (round $ (fromIntegral duration) * 0.8) -- Try to reduce missing frame by making interval lower
+          return filenames
 
 
 fetchAndSave :: String -> String -> IO ()
