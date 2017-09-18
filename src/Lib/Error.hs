@@ -10,6 +10,7 @@ data NicoException = CannotLogin
                    | CannotParseWebsocketUri
                    | NoPlayListFoundInMaster
                    | InvalidPlayListPath
+                   | NoLiveInCommunity
   deriving (Show, Typeable)
 
 instance Exception NicoException

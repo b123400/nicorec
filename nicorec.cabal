@@ -17,6 +17,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     Lib
                      , Lib.Error
+                     , Lib.Community
   other-modules:       Lib.Operators
                      , Lib.Cookie
                      , Lib.Parser
@@ -41,6 +42,8 @@ library
                      , binary >= 0.8 && < 0.9
                      , filepath >= 1.4 && < 1.5
                      , directory >= 1.3 && < 1.4
+                     , xml-conduit >= 1.5 && < 1.8
+                     , html-conduit >= 1.2 && < 1.3
   default-language:    Haskell2010
 
 executable nicorec-exe
