@@ -14,16 +14,14 @@ import Data.String.Utils (maybeRead)
 
 data WebsocketTokens = WebsocketTokens
   { broadcastId      :: B.ByteString
-  , webSocketBaseUrl :: B.ByteString
-  , audienceToken    :: B.ByteString
+  , webSocketUrl     :: B.ByteString
   } deriving (Show)
 
 extractWebSocketTokens :: B.ByteString -> Maybe WebsocketTokens
 extractWebSocketTokens bodyString =
   WebsocketTokens
   <$> substringToken "broadcastId" bodyString
-  <*> substringToken "webSocketBaseUrl" bodyString
-  <*> substringToken "audienceToken" bodyString
+  <*> substringToken "webSocketUrl" bodyString
 
   where substringToken :: B.ByteString -> B.ByteString -> Maybe B.ByteString
         substringToken name body =

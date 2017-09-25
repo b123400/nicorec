@@ -19,13 +19,10 @@ import Network.URI ( URI
                    , relativeTo )
 
 import Lib.Error (liftErr, NicoException(..))
-import Lib.Parser (WebsocketTokens, webSocketBaseUrl, broadcastId, audienceToken)
+import Lib.Parser (WebsocketTokens, webSocketUrl, broadcastId)
 
 websocketUri :: WebsocketTokens -> Maybe URI
-websocketUri t = parse $ webSocketBaseUrl t
-                      <> broadcastId t
-                      <> "?audience_token="
-                      <> audienceToken t
+websocketUri t = parse $ webSocketUrl t
   where parse = parseURI . BC8.unpack
 
 
