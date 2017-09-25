@@ -20,6 +20,7 @@ import Data.Maybe (isJust, catMaybes, listToMaybe)
 import Data.String.Utils (maybeRead)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
+import qualified Data.ByteString as BS -- ByteString Strict
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as BC8
 import qualified Data.Text as T
@@ -38,6 +39,28 @@ import Network.Wreq ( get
 import qualified Network.WebSockets as WS
 import Data.Aeson.Lens (key, nth, _String, _Number)
 import System.FilePath.Posix (takeFileName, (</>))
+
+import Conduit ( Source
+               , Producer
+               , Conduit
+               , Sink
+               , MonadIO
+               , ResourceT
+               , MonadResource
+               , (=$=)
+               , ($$)
+               , await
+               , liftIO
+               , yieldMany
+               , yield
+               , runResourceT
+               , runConduit )
+import Data.Conduit.Async ((=$=&), runCConduit)
+import Data.Conduit.TQueue (sinkTMQueue)
+import Control.Concurrent.STM.TMQueue (TMQueue, newTMQueue, readTMQueue)
+import Control.Monad.STM (atomically)
+import Network.HTTP.Simple (parseRequest, httpSource, getResponseBody)
+import Data.Conduit.Binary (sinkFile)
 
 import Lib.Error (liftErr, NicoException(..))
 import Lib.Operators ((<*>>))
@@ -154,29 +177,76 @@ processMasterM3U8 base url =  prepareDirectory base
 
 
 processPlayList :: String -> String -> IO ()
-processPlayList base url = repeatDedup 100 go $> ()
-  where go performed = do
-          putStrLn $ "fetching " <> url
-          body <- view responseBody <$> get url
+processPlayList base url = runResourceT $ runCConduit $ source
+                                                     =$=& (dedup 100)
+                                                     =$=& fetch
+                                                     =$=& fork
+                                                     =$=& collect
+                                                     =$=& sink
+
+  where source :: MonadIO m => Conduit () m String
+        source = do
+          liftIO $ putStrLn $ "fetching " <> url
+          body <- liftIO $ view responseBody <$> get url
           let playList = catMaybes $ appendPath url <$> BC8.unpack
                                                     <$> P.parsePlayListFromM3U8 body
           let duration = P.parseDurationFromM3U8 body
-          let newTS = filter (not . performed . outputFilename base) playList
-          let filenames = outputFilename base <$> newTS
-          traverse (\u-> forkIO $ fetchAndSave (outputFilename base u) u) newTS
-          threadDelay (round $ (fromIntegral duration) * 0.8) -- Try to reduce missing frame by making interval lower
-          return filenames
+          yieldMany playList
+          liftIO $ threadDelay (round $ (fromIntegral duration) * 0.8) -- Try to reduce missing frame by making interval lower
+          -- need to figure out when to end
+          source
 
+        dedup :: Eq a => Monad m => Int -> Conduit a m a
+        dedup limit = dedup' limit []
+        dedup' limit existing = do
+          val <- await
+          case val of
+            Nothing -> return ()
+            Just v  -> do
+              let isDup = elem val existing
+              if not isDup then yield v else return ()
+              let newExisting = if isDup
+                                then existing
+                                else drop (length existing + 1 - limit) (existing <> [val])
+              dedup' limit newExisting
 
-fetchAndSave :: String -> String -> IO ()
-fetchAndSave filename url = log >> go 10
-  where log = putStrLn $ "fetching " <> (takeFileName url)
-        go 0          = return ()
-        go retryCount = (putStrLn ("retry: " <> (show retryCount))
-                        >> get url
-                        <&> view responseBody
-                        >>= BC8.writeFile filename)
-                        `catch` (\e -> (putStrLn $ show (e :: HttpException)) >> go (retryCount - 1))
+        fetch :: MonadIO m => Conduit String m (Conduit () (ResourceT IO) BS.ByteString)
+        fetch = do
+          url <- await
+          case url of
+            Nothing -> return ()
+            Just u -> do
+              req <- liftIO $ parseRequest u
+              yield $ httpSource req getResponseBody
+              fetch
+
+        fork :: MonadIO m => Conduit (Conduit () (ResourceT IO) a) m (TMQueue a)
+        fork = do
+          stream <- await
+          case stream of
+            Nothing -> return ()
+            Just source -> do
+              q <- liftIO $ atomically newTMQueue
+              liftIO $ forkIO $ runResourceT $ runConduit $ source =$= (sinkTMQueue q True)
+              yield q
+              fork
+
+        collect :: MonadIO m => Conduit (TMQueue a) m a
+        collect = do
+          queue <- await
+          case queue of
+            Nothing -> return ()
+            Just q -> do
+              drainAll q
+              collect
+          where drainAll q = do
+                             val <- liftIO $ atomically $ readTMQueue q
+                             case val of
+                               Nothing -> return ()
+                               Just v  -> yield v >> drainAll q
+
+        sink :: MonadResource m => Sink BS.ByteString m ()
+        sink = sinkFile "video.ts" -- (outputFilename base url)
 
 outputFilename :: String -> String -> String
 outputFilename base url =
