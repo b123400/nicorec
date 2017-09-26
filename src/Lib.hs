@@ -38,7 +38,7 @@ import Network.Wreq ( get
                     , FormParam((:=)))
 import qualified Network.WebSockets as WS
 import Data.Aeson.Lens (key, nth, _String, _Number)
-import System.FilePath.Posix (takeFileName, (</>))
+import System.FilePath.Posix (takeFileName, (</>), (<.>))
 
 import Conduit ( Source
                , Producer
@@ -61,6 +61,7 @@ import Control.Concurrent.STM.TMQueue (TMQueue, newTMQueue, readTMQueue)
 import Control.Monad.STM (atomically)
 import Network.HTTP.Simple (parseRequest, httpSource, getResponseBody)
 import Data.Conduit.Binary (sinkFile)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Lib.Error (liftErr, NicoException(..))
 import Lib.Operators ((<*>>))
@@ -177,12 +178,14 @@ processMasterM3U8 base url =  prepareDirectory base
 
 
 processPlayList :: String -> String -> IO ()
-processPlayList base url = runResourceT $ runCConduit $ source
-                                                     =$=& (dedup 100)
-                                                     =$=& fetch
-                                                     =$=& fork
-                                                     =$=& collect
-                                                     =$=& sink
+processPlayList base url = do
+  timeStamp <- round <$> getPOSIXTime
+  runResourceT $ runCConduit $ source
+                            =$=& (dedup 100)
+                            =$=& fetch
+                            =$=& fork
+                            =$=& collect
+                            =$=& (sink $ show timeStamp <.> "ts")
 
   where source :: MonadIO m => Conduit () m String
         source = do
@@ -245,8 +248,8 @@ processPlayList base url = runResourceT $ runCConduit $ source
                                Nothing -> return ()
                                Just v  -> yield v >> drainAll q
 
-        sink :: MonadResource m => Sink BS.ByteString m ()
-        sink = sinkFile "video.ts" -- (outputFilename base url)
+        sink :: MonadResource m => String -> Sink BS.ByteString m ()
+        sink filename = sinkFile $ base </> filename
 
 outputFilename :: String -> String -> String
 outputFilename base url =
