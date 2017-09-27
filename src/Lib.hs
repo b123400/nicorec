@@ -57,7 +57,7 @@ import Conduit ( Source
                , runConduit )
 import Data.Conduit.Async ((=$=&), runCConduit)
 import Data.Conduit.TQueue (sinkTMQueue)
-import Control.Concurrent.STM.TMQueue (TMQueue, newTMQueue, readTMQueue)
+import Control.Concurrent.STM.TMQueue (TMQueue, newTMQueue, readTMQueue, closeTMQueue)
 import Control.Monad.STM (atomically)
 import Network.HTTP.Simple (parseRequest, httpSource, getResponseBody)
 import Data.Conduit.Binary (sinkFile)
@@ -234,7 +234,9 @@ processPlayList base url = do
             Nothing -> return ()
             Just source -> do
               q <- liftIO $ atomically newTMQueue
-              liftIO $ forkIO $ runResourceT $ runConduit $ source =$= (sinkTMQueue q True)
+              liftIO $ forkIO $ (retry 3 $ runResourceT $ runConduit $ source =$= (sinkTMQueue q True))
+                  `catchAll` (\e-> (putStrLn $ show e)
+                                >> (atomically $ closeTMQueue q))
               yield q
               fork
 
