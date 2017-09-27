@@ -13,7 +13,7 @@ import Control.Monad.Loops (untilJust)
 import Control.Lens ((^.), (^?), (.~), (?~), (<&>), view)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
-import Control.Monad.Catch (catch)
+import Control.Monad.Catch (MonadCatch, MonadThrow, catchAll, throwM)
 import Data.Functor (($>))
 import Data.Function ((&))
 import Data.Maybe (isJust, catMaybes, listToMaybe)
@@ -190,7 +190,7 @@ processPlayList base url = do
   where source :: MonadIO m => Conduit () m String
         source = do
           liftIO $ putStrLn $ "fetching " <> url
-          body <- liftIO $ view responseBody <$> get url
+          body <- liftIO $ view responseBody <$> (retry 20 $ get url)
           let playList = catMaybes $ appendPath url <$> BC8.unpack
                                                     <$> P.parsePlayListFromM3U8 body
           let duration = P.parseDurationFromM3U8 body
@@ -198,6 +198,10 @@ processPlayList base url = do
           liftIO $ threadDelay (round $ (fromIntegral duration) * 0.8) -- Try to reduce missing frame by making interval lower
           -- need to figure out when to end
           source
+
+        retry :: MonadThrow m => MonadCatch m => Int -> m a -> m a
+        retry 0 io = io
+        retry count io = io `catchAll` (const $ retry (count - 1) io)
 
         dedup :: Eq a => Monad m => Int -> Conduit a m a
         dedup limit = dedup' limit []
