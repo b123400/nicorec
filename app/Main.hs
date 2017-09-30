@@ -1,7 +1,7 @@
 module Main where
 
 import System.ReadEnvVar (lookupEnvDef, lookupEnvEx)
-import Control.Monad (join)
+import Control.Monad (join, forever)
 import Control.Monad.Loops (untilJust)
 import Control.Monad.Catch (catch, throwM)
 import Control.Concurrent (threadDelay)
@@ -25,6 +25,8 @@ main =
 
   login username password
           >>= liftErr CannotLogin >>= \cookieJar ->
+
+  forever $
 
   neverGiveUp' (putStrLn "No live" -- also need to print time
                 >> delay1Minute
