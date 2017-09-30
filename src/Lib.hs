@@ -141,6 +141,8 @@ getM3U8Url tokens jar = do
                            then pong c
                            else return ())
                         >> keepReading c
+        -- Ending:
+        -- {"type":"watch","body":{"command":"disconnect","params":["9171511542386","END_PROGRAM"]}}
 
         lookForM3U8Url :: B.ByteString -> Maybe T.Text
         lookForM3U8Url string = string ^? key "body"
@@ -186,21 +188,23 @@ processPlayList base url =
                         =$=& (sink $ show timeStamp <.> "ts")
 
   where source :: MonadIO m => Conduit () m String
-        source = do
-          liftIO $ putStrLn $ "fetching " <> url
-          body <- liftIO $ view responseBody <$> (retry 20 $ get url)
-          let playList = catMaybes $ appendPath url <$> BC8.unpack
-                                                    <$> P.parsePlayListFromM3U8 body
-          let duration = P.parseDurationFromM3U8 body
-          yieldMany playList
-          liftIO $ threadDelay (round $ (fromIntegral duration) * 0.8) -- Try to reduce missing frame by making interval lower
-          -- need to figure out when to end
-          source
+        source = (liftIO $ putStrLn $ "fetching " <> url)
+             >>  (liftIO $ view responseBody <$> (retry 20 $ get url))
+             >>= \body ->
+             let playList = catMaybes $ appendPath url <$> BC8.unpack
+                                                       <$> P.parsePlayListFromM3U8 body
+                 duration = P.parseDurationFromM3U8 body
+             in  yieldMany playList
+             -- Try to reduce missing frame by making interval lower
+             >>  (liftIO $ threadDelay $ round $ (fromIntegral duration) * 0.8)
+             -- need to figure out when to end
+             >>  source
 
         fetch :: MonadIO m => Conduit String m (Conduit () (ResourceT IO) BS.ByteString)
         fetch = whileJust_ await $ \url->
                   (liftIO $ parseRequest url)
                   >>= \req-> (yield $ httpSource req getResponseBody)
+                  >>  (liftIO $ putStrLn $ "fetching " <> url)
 
         sink :: MonadResource m => String -> Sink BS.ByteString m ()
         sink filename = sinkFile $ base </> filename
