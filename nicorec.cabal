@@ -18,12 +18,13 @@ library
   exposed-modules:     Lib
                      , Lib.Error
                      , Lib.Community
+                     , Lib.Utility
   other-modules:       Lib.Operators
                      , Lib.Cookie
                      , Lib.Parser
                      , Lib.Url
                      , Lib.FileSystem
-                     , Lib.Utility
+                     , Lib.Conduit
   build-depends:       base                >= 4.7 && < 5
                      , wreq                >= 0.5 && < 0.6
                      , bytestring          >= 0.10 && < 0.11
