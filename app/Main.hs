@@ -13,7 +13,7 @@ import System.FilePath.Posix ((</>))
 import Lib (login, extractWebSocketTokens, getM3U8Url, processMasterM3U8)
 import Lib.Error (liftErr, NicoException(..))
 import Lib.Community (getLiveID)
-import Lib.Utility (retry', neverGiveUp')
+import Lib.Utility (retry', neverGiveUp, neverGiveUp')
 
 main :: IO ()
 main =
@@ -26,7 +26,7 @@ main =
   login username password
           >>= liftErr CannotLogin >>= \cookieJar ->
 
-  forever $
+  neverGiveUp $
 
   neverGiveUp' (putStrLn "No live" -- also need to print time
                 >> delay1Minute
@@ -35,7 +35,6 @@ main =
                                   >>= \liveID ->
   -- putStrLn $ show liveID
 
-  -- TODO: handle non-premium cannot watch
   (retry' 10 delay1Minute $ extractWebSocketTokens cookieJar liveID)
    >>= liftErr CannotExtractToken >>= \tokens->
 

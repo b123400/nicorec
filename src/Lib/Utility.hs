@@ -20,4 +20,4 @@ neverGiveUp :: MonadThrow m => MonadCatch m => m a -> m a
 neverGiveUp = neverGiveUp' (return ())
 
 neverGiveUp' :: MonadThrow m => MonadCatch m => m b -> m a -> m a
-neverGiveUp' beforeRetry m = catchAll m (const $ beforeRetry >> m)
+neverGiveUp' beforeRetry m = catchAll m (const $ neverGiveUp $ beforeRetry >> m)
