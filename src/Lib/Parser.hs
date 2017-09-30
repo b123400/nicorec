@@ -39,5 +39,5 @@ parseDurationFromM3U8 =
   . foldl (const id) 1    -- default 1 second
   . catMaybes
   . map (maybeRead . BC8.unpack . last . BC8.split ':')
-  . filter (\s-> "#EXT-X-TARGETDURATION:" `BC8.isPrefixOf` s)
+  . filter (BC8.isPrefixOf "#EXT-X-TARGETDURATION:")
   . BC8.split '\n'

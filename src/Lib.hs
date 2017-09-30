@@ -9,14 +9,14 @@ module Lib
 
 import Prelude
 import Control.Monad (mfilter, join)
-import Control.Monad.Loops (untilJust)
+import Control.Monad.Loops (untilJust, whileJust_)
 import Control.Lens ((^.), (^?), (.~), (?~), (<&>), view)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import Control.Monad.Catch (MonadCatch, MonadThrow, catchAll, throwM)
 import Data.Functor (($>))
 import Data.Function ((&))
-import Data.Maybe (isJust, catMaybes, listToMaybe)
+import Data.Maybe (isJust, catMaybes, listToMaybe, maybe)
 import Data.String.Utils (maybeRead)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
@@ -40,15 +40,12 @@ import qualified Network.WebSockets as WS
 import Data.Aeson.Lens (key, nth, _String, _Number)
 import System.FilePath.Posix (takeFileName, (</>), (<.>))
 
-import Conduit ( Source
-               , Producer
-               , Conduit
+import Conduit ( Conduit
                , Sink
                , MonadIO
                , ResourceT
                , MonadResource
                , (=$=)
-               , ($$)
                , await
                , liftIO
                , yieldMany
@@ -56,9 +53,6 @@ import Conduit ( Source
                , runResourceT
                , runConduit )
 import Data.Conduit.Async ((=$=&), runCConduit)
-import Data.Conduit.TQueue (sinkTMQueue)
-import Control.Concurrent.STM.TMQueue (TMQueue, newTMQueue, readTMQueue, closeTMQueue)
-import Control.Monad.STM (atomically)
 import Network.HTTP.Simple (parseRequest, httpSource, getResponseBody)
 import Data.Conduit.Binary (sinkFile)
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -68,7 +62,8 @@ import Lib.Operators ((<*>>))
 import Lib.Url (websocketUri, host, port, path, appendPath)
 import Lib.Cookie (renderCookieJar)
 import Lib.FileSystem (prepareDirectory)
-import Lib.Utility (repeatDedup)
+import Lib.Utility (repeatDedup, retry)
+import Lib.Conduit (dedup, fork, collect)
 import qualified Lib.Parser as P
 
 login :: String -> String -> IO (Maybe CookieJar)
@@ -115,19 +110,19 @@ getM3U8Url tokens jar = do
   where action :: MVar T.Text -> WS.Connection -> IO ()
         action result c =
           putStrLn "Websocket connection opened"
-          >> WS.sendTextData c ("{\"type\":\"watch\",\"body\":{\"params\":[\""
-                             <> P.broadcastId tokens
-                             <> "\",\"\",\"true\",\"hls\",\"\"],\"command\":\"getpermit\"}}")
-          >> untilJust (WS.receiveData c
+          >>  WS.sendTextData c ("{\"type\":\"watch\",\"body\":{\"params\":[\""
+                              <> P.broadcastId tokens
+                              <> "\",\"\",\"true\",\"hls\",\"\"],\"command\":\"getpermit\"}}")
+          >>  untilJust (WS.receiveData c
                         >>= \str -> BC8.putStrLn ("received json: " <> str)
                         $> lookForM3U8Url str)
           >>= putMVar result
-          >> untilJust (WS.receiveData c
+          >>  untilJust (WS.receiveData c
                         >>= \str -> BC8.putStrLn ("received json: " <> str)
                         $> lookForWatchingInterval str)
           >>= forkIO . (watchingInterval c (P.broadcastId tokens))
-          >> keepReading c
-          >> putStrLn "Websocket closed"
+          >>  keepReading c
+          >>  putStrLn "Websocket closed"
 
         watchingInterval c broadcastId interval =
           putStrLn "Sending watching command"
@@ -160,13 +155,16 @@ getM3U8Url tokens jar = do
         lookForWatchingInterval string =
           ((*) 1000000) <$> (maybeRead =<< findInterval string)
           where findInterval string  = (string ^? key "body" . key "command")
-                                       & mfilter ((==) "watchinginterval")
-                                       >> string ^? key "body" . key "params" . nth 0 . _String
+                                       &   mfilter ((==) "watchinginterval")
+                                       >>  string ^? key "body"
+                                                   . key "params"
+                                                   . nth 0
+                                                   . _String
                                        <&> T.unpack
 
 processMasterM3U8 :: String -> String -> IO ()
 processMasterM3U8 base url =  prepareDirectory base
-                              >> get url
+                              >>  get url
                               <&> view responseBody
                               <&> P.parsePlayListFromM3U8
                               <&> listToMaybe
@@ -178,14 +176,14 @@ processMasterM3U8 base url =  prepareDirectory base
 
 
 processPlayList :: String -> String -> IO ()
-processPlayList base url = do
-  timeStamp <- round <$> getPOSIXTime
-  runResourceT $ runCConduit $ source
-                            =$=& (dedup 100)
-                            =$=& fetch
-                            =$=& fork
-                            =$=& collect
-                            =$=& (sink $ show timeStamp <.> "ts")
+processPlayList base url =
+  round <$> getPOSIXTime >>= \timeStamp->
+  runResourceT $ runCConduit
+               $ source =$=& (dedup 100)
+                        =$=& fetch
+                        =$=& fork
+                        =$=& collect
+                        =$=& (sink $ show timeStamp <.> "ts")
 
   where source :: MonadIO m => Conduit () m String
         source = do
@@ -199,64 +197,10 @@ processPlayList base url = do
           -- need to figure out when to end
           source
 
-        retry :: MonadThrow m => MonadCatch m => Int -> m a -> m a
-        retry 0 io = io
-        retry count io = io `catchAll` (const $ retry (count - 1) io)
-
-        dedup :: Eq a => Monad m => Int -> Conduit a m a
-        dedup limit = dedup' limit []
-        dedup' limit existing = do
-          val <- await
-          case val of
-            Nothing -> return ()
-            Just v  -> do
-              let isDup = elem val existing
-              if not isDup then yield v else return ()
-              let newExisting = if isDup
-                                then existing
-                                else drop (length existing + 1 - limit) (existing <> [val])
-              dedup' limit newExisting
-
         fetch :: MonadIO m => Conduit String m (Conduit () (ResourceT IO) BS.ByteString)
-        fetch = do
-          url <- await
-          case url of
-            Nothing -> return ()
-            Just u -> do
-              req <- liftIO $ parseRequest u
-              yield $ httpSource req getResponseBody
-              fetch
-
-        fork :: MonadIO m => Conduit (Conduit () (ResourceT IO) a) m (TMQueue a)
-        fork = do
-          stream <- await
-          case stream of
-            Nothing -> return ()
-            Just source -> do
-              q <- liftIO $ atomically newTMQueue
-              liftIO $ forkIO $ (retry 3 $ runResourceT $ runConduit $ source =$= (sinkTMQueue q True))
-                  `catchAll` (\e-> (putStrLn $ show e)
-                                >> (atomically $ closeTMQueue q))
-              yield q
-              fork
-
-        collect :: MonadIO m => Conduit (TMQueue a) m a
-        collect = do
-          queue <- await
-          case queue of
-            Nothing -> return ()
-            Just q -> do
-              drainAll q
-              collect
-          where drainAll q = do
-                             val <- liftIO $ atomically $ readTMQueue q
-                             case val of
-                               Nothing -> return ()
-                               Just v  -> yield v >> drainAll q
+        fetch = whileJust_ await $ \url->
+                  (liftIO $ parseRequest url)
+                  >>= \req-> (yield $ httpSource req getResponseBody)
 
         sink :: MonadResource m => String -> Sink BS.ByteString m ()
         sink filename = sinkFile $ base </> filename
-
-outputFilename :: String -> String -> String
-outputFilename base url =
-  base </> (takeWhile ((/=) '?') $ takeFileName url)
