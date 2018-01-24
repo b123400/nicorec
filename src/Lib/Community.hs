@@ -32,7 +32,7 @@ findLiveID html = liftErr NoLiveInCommunity $ go $ fromDocument $ parseLBS html
   where go cursor = (cursor $.// (element "a") >=> attributeIs "class" "now_live_inner")
                  >>= attribute "href"
                  <&> T.unpack
-                  & mapMaybe liveIdInUrl
+                  &  mapMaybe liveIdInUrl
                   &  listToMaybe
 
         liveIdInUrl :: String -> Maybe String

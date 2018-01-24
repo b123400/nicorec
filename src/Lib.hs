@@ -110,9 +110,10 @@ getM3U8Url tokens jar = do
   where action :: MVar T.Text -> WS.Connection -> IO ()
         action result c =
           putStrLn "Websocket connection opened"
-          >>  WS.sendTextData c ("{\"type\":\"watch\",\"body\":{\"params\":[\""
-                              <> P.broadcastId tokens
-                              <> "\",\"\",\"true\",\"hls\",\"\"],\"command\":\"getpermit\"}}")
+          >>  WS.sendTextData c ("{type: \"watch\", body: {command: \"playerversion\", params: [\"leo\"]}}" :: BC8.ByteString)
+          >>  WS.sendTextData c ("{\"type\":\"watch\",\"body\":{\"command\":\"getpermit\",\"requirement\":{\"broadcastId\":\""
+                               <> P.broadcastId tokens
+                               <> "\",\"route\":\"\",\"stream\":{\"protocol\":\"hls\",\"requireNewStream\":true,\"priorStreamQuality\":\"high\",\"isLowLatency\":true},\"room\":{\"isCommentable\":true,\"protocol\":\"webSocket\"}}}}")
           >>  untilJust (WS.receiveData c
                         >>= \str -> BC8.putStrLn ("received json: " <> str)
                         $> lookForM3U8Url str)
@@ -138,11 +139,11 @@ getM3U8Url tokens jar = do
         keepReading c = WS.receiveData c
                         >>= \str -> BC8.putStrLn ("received data: " <> str)
                         >> (if isJust $ mfilter ((==) "ping") (str ^? key "type" . _String)
-                           then pong c
-                           else return ())
-                        >> keepReading c
-        -- Ending:
-        -- {"type":"watch","body":{"command":"disconnect","params":["9171511542386","END_PROGRAM"]}}
+                            then pong c
+                            else return ())
+                        >> (if isJust $ mfilter ((==) "disconnect") (str ^? key "body" . key "command" . _String)
+                            then return ()
+                            else keepReading c)
 
         lookForM3U8Url :: B.ByteString -> Maybe T.Text
         lookForM3U8Url string = string ^? key "body"
