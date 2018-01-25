@@ -15,12 +15,12 @@ import Data.Text.Lazy.Encoding (encodeUtf8)
 import Data.Text.Lazy.Builder (toLazyText)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as BC8
+import qualified Data.ByteString.Lazy.Search as BS
 import Data.String.Utils (maybeRead)
 import Data.Aeson.Lens (key, _String)
 import HTMLEntities.Decoder (htmlEncodedText)
 import Text.XML.Cursor (($.//), fromDocument, element, attributeIs, attribute)
 import Text.HTML.DOM (parseLBS)
-import Debug.Trace (traceShow)
 
 data WebsocketTokens = WebsocketTokens
   { broadcastId      :: B.ByteString
@@ -34,14 +34,19 @@ extractWebSocketTokens bodyString =
   <*> (encodeUtf8 <$> TL.fromStrict <$> webSocketUrl)
 
   where
-    jsonString :: Maybe String
-    jsonString = ((fromDocument $ parseLBS bodyString)
+    -- For some reasons, parseLBS would parse <a b="\&quot;"> as <a b="&quot;">.
+    -- Need to manually extra escape it.
+    fixedBodyString :: B.ByteString
+    fixedBodyString = BS.replace "\\&quot;" ("\\\\&quot;" :: B.ByteString) bodyString
+
+    jsonString :: Maybe T.Text
+    jsonString = ((fromDocument $ parseLBS fixedBodyString)
                    $.// (element "script")
                    >=> attributeIs "id" "embedded-data")
                  >>= attribute "data-props"
                  <&> htmlEncodedText
                  <&> toLazyText
-                 <&> TL.unpack
+                 <&> TL.toStrict
                   &  listToMaybe
     broadcastId :: Maybe T.Text
     broadcastId = jsonString >>= \s->

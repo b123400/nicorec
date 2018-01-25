@@ -54,6 +54,7 @@ library
                      , conduit-extra       >= 1.1 && < 2.0
                      , time                >= 1.6 && < 2.0
                      , html-entities       >= 1.1 && < 1.2
+                     , stringsearch        >= 0.3 && < 0.4
   default-language:    Haskell2010
 
 executable nicorec-exe
