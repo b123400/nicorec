@@ -66,6 +66,8 @@ import Lib.Utility (repeatDedup, retry)
 import Lib.Conduit (dedup, fork, collect)
 import qualified Lib.Parser as P
 
+import Wuss
+
 login :: String -> String -> IO (Maybe CookieJar)
 login username password = do
   putStrLn "Logging in"
@@ -98,12 +100,14 @@ getM3U8Url :: P.WebsocketTokens -> CookieJar -> IO T.Text
 getM3U8Url tokens jar = do
   uri <- liftErr CannotParseWebsocketUri $ websocketUri tokens
   result <- newEmptyMVar
-  forkIO $ (join $ WS.runClientWith
+  forkIO $ (join $ runSecureClientWith
             <$> host uri
-            <*> port uri
+            <*> pure 443
             <*>> path uri
             <*>> WS.defaultConnectionOptions
-            <*>> [("Cookies", B.toStrict $ renderCookieJar jar)]
+            <*>> [("Cookies", B.toStrict $ renderCookieJar jar)
+                 ,("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.106 Safari/537.36")
+                 ]
             <*>> action result)
   takeMVar result
 
