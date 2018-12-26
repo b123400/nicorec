@@ -88,7 +88,7 @@ fetchPlayerHTML :: CookieJar -> String -> IO B.ByteString
 fetchPlayerHTML cookieJar liveID = do
   let opts = defaults & param "player_name" .~ ["leo"]
                       & cookies ?~ cookieJar
-  r <- getWith opts $ "http://live2.nicovideo.jp/select_player/" ++ liveID
+  r <- getWith opts $ "http://live2.nicovideo.jp/watch/" ++ liveID
   return $ r ^. responseBody
 
 extractWebSocketTokens :: CookieJar -> String -> IO (Maybe P.WebsocketTokens)
