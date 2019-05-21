@@ -40,11 +40,11 @@ import qualified Network.WebSockets as WS
 import Data.Aeson.Lens (key, nth, _String, _Number)
 import System.FilePath.Posix (takeFileName, (</>), (<.>))
 
-import Conduit ( Conduit
-               , Sink
+import Conduit ( ConduitT
                , MonadIO
                , ResourceT
                , MonadResource
+               , Void
                , (=$=)
                , await
                , liftIO
@@ -192,7 +192,7 @@ processPlayList base url =
                         =$=& collect
                         =$=& (sink $ show timeStamp <.> "ts")
 
-  where source :: MonadIO m => Conduit () m String
+  where source :: MonadIO m => ConduitT () String m ()
         source = (liftIO $ putStrLn $ "fetching " <> url)
              >>  (liftIO $ view responseBody <$> (retry 20 $ get url))
              >>= \body ->
@@ -205,11 +205,11 @@ processPlayList base url =
              -- need to figure out when to end
              >>  source
 
-        fetch :: MonadIO m => Conduit String m (Conduit () (ResourceT IO) BS.ByteString)
+        fetch :: MonadIO m => ConduitT String (ConduitT () BS.ByteString (ResourceT IO) ()) m ()
         fetch = whileJust_ await $ \url->
                   (liftIO $ parseRequest url)
                   >>= \req-> (yield $ httpSource req getResponseBody)
                   >>  (liftIO $ putStrLn $ "fetching " <> url)
 
-        sink :: MonadResource m => String -> Sink BS.ByteString m ()
+        sink :: MonadResource m => String -> ConduitT BS.ByteString Void m ()
         sink filename = sinkFile $ base </> filename
