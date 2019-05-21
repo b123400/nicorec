@@ -17,6 +17,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     Lib
                      , Lib.Error
+                     , Lib.Channel
                      , Lib.Community
                      , Lib.Utility
   other-modules:       Lib.Operators

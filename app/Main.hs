@@ -5,6 +5,7 @@ import Control.Monad (join, forever, forM_)
 import Control.Monad.Loops (untilJust)
 import Control.Concurrent (forkIO, threadDelay)
 import Data.Functor (($>))
+import Data.List (isPrefixOf)
 import Data.List.Split (splitOn)
 import Data.Time.Clock (getCurrentTime)
 import qualified Data.ByteString.Lazy.Char8 as B
@@ -17,6 +18,7 @@ import Lib (login, extractWebSocketTokens, getM3U8Url, processMasterM3U8)
 import Lib.Error (liftErr, NicoException(..))
 import Lib.Community (getLiveID)
 import Lib.Utility (retry', neverGiveUp, neverGiveUp')
+import qualified Lib.Channel as C (getLiveID)
 
 main :: IO ()
 main = do
@@ -31,7 +33,9 @@ main = do
     liveID <- neverGiveUp' (getCurrentTime >>= \currentTime-> putStrLn ("No live(" ++ coId ++ ")" ++ (show currentTime))
                          >> delay1Minute
                          >> putStrLn "Retrying")
-                           (getLiveID cookieJar coId)
+                         (if ("co" `isPrefixOf` coId)
+                              then (getLiveID cookieJar coId)
+                              else (C.getLiveID cookieJar coId))
 
     tokens <- liftErr CannotExtractToken =<< (retry' 10 delay1Minute $ extractWebSocketTokens cookieJar liveID)
     m3u8Url <- getM3U8Url tokens cookieJar
