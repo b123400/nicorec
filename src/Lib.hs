@@ -16,7 +16,8 @@ import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import Control.Monad.Catch (MonadCatch, MonadThrow, catchAll, throwM)
 import Data.Functor (($>))
 import Data.Function ((&))
-import Data.Maybe (isJust, catMaybes, listToMaybe, maybe)
+import Data.List (any)
+import Data.Maybe (isJust, catMaybes, listToMaybe, fromMaybe)
 import Data.String.Utils (maybeRead)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
@@ -24,7 +25,8 @@ import qualified Data.ByteString as BS -- ByteString Strict
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as BC8
 import qualified Data.Text as T
-import Network.HTTP.Client (CookieJar, HttpException)
+import Network.HTTP.Client (CookieJar, HttpException, cookie_name)
+import Network.HTTP.Client.Internal (expose)
 import Network.Wreq ( get
                     , post
                     , getWith
@@ -73,10 +75,9 @@ login username password = do
   putStrLn "Logging in"
   r <- post "https://secure.nicovideo.jp/secure/login" [ "mail" := username
                                                        , "password" := password ]
-  let isLoginSuccess =
-        r ^? responseHeader "x-niconico-authflag"
-        & mfilter ((==) "1")
-        & isJust
+  let isLoginSuccess = fromMaybe False $ any ((==) "user_session" . cookie_name)
+                                      <$> expose
+                                      <$> (r ^? responseCookieJar)
 
   putStrLn ("Login: " <> show isLoginSuccess)
   if isLoginSuccess
