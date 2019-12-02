@@ -10,10 +10,11 @@ import Conduit ( ConduitT
                , runResourceT
                , runConduit )
 import Control.Concurrent.STM.TMQueue (TMQueue, newTMQueue, readTMQueue, closeTMQueue)
-import Control.Monad.STM (atomically)
-import Control.Monad.Loops (whileJust_)
 import Control.Monad.Catch (catchAll)
+import Control.Monad.Loops (whileJust_)
+import Control.Monad.STM (atomically)
 import Control.Concurrent (forkIO)
+import Data.Conduit (ConduitT, bracketP)
 import Data.Conduit.TQueue (sinkTMQueue)
 import Data.Monoid ((<>))
 
@@ -33,16 +34,14 @@ dedup' limit existing =
      >> dedup' limit newExisting
 
 fork :: MonadIO m => ConduitT (ConduitT () a (ResourceT IO) ()) (TMQueue a) m ()
-fork = whileJust_ await $ \source->
-         (liftIO $ atomically newTMQueue)
-         >>= \q-> (liftIO $ forkIO
-                          $ (retry 3 $ runResourceT
-                                     $ runConduit
-                                     $ source .| sinkTMQueue q)
-                          `catchAll`
-                           (\e-> (putStrLn $ show e)
-                              >> (atomically $ closeTMQueue q)))
-         >> yield q
+fork = whileJust_ await $ \source-> do
+         q <- liftIO $ atomically newTMQueue
+         liftIO $ forkIO $ (retry 3 $ runResourceT
+                                    $ runConduit
+                                    $ bracketP (pure ())
+                                               (const $ atomically $ closeTMQueue q)
+                                               (const $ source .| sinkTMQueue q))
+         yield q
 
 collect :: MonadIO m => ConduitT (TMQueue a) a m ()
 collect = whileJust_ await drainAll

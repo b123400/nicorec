@@ -14,7 +14,7 @@ import System.FilePath.Posix ((</>))
 
 import System.IO (hFlush, stdout)
 
-import Lib (login, extractWebSocketTokens, getM3U8Url, processMasterM3U8)
+import Lib (login, extractWebSocketTokens, record)
 import Lib.Error (liftErr, NicoException(..))
 import Lib.Community (getLiveID)
 import Lib.Utility (retry', neverGiveUp, neverGiveUp')
@@ -38,8 +38,7 @@ main = do
                               else (C.getLiveID cookieJar coId))
 
     tokens <- liftErr CannotExtractToken =<< (retry' 10 delay1Minute $ extractWebSocketTokens cookieJar liveID)
-    m3u8Url <- getM3U8Url tokens cookieJar
-    processMasterM3U8 (base </> coId) $ T.unpack m3u8Url
+    record tokens cookieJar (base </> coId)
     putStrLn "Done"
 
   forever $ do
